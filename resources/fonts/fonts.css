@@ -1,0 +1,48 @@
+/* ==========================================================================
+   Barber Shop Type System — Anton + Oswald + Yellowtail
+   Drop this file in and import it. No build step required.
+   ========================================================================== */
+
+/* 1. Load the fonts (Google Fonts CDN) -------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@300;400;500;600;700&family=Yellowtail&display=swap');
+
+/* 2. Design tokens ---------------------------------------------------------- */
+:root {
+  --font-display: 'Anton', Impact, 'Arial Narrow Bold', sans-serif; /* signage / awning */
+  --font-body:    'Oswald', 'Helvetica Neue', Arial, sans-serif;     /* UI + reading */
+  --font-script:  'Yellowtail', 'Brush Script MT', cursive;          /* "Est. 1924" flourish */
+}
+
+/* 3. Ready-to-use roles ----------------------------------------------------- */
+
+/* Big awning headline — the "BARBER SHOP" lockup */
+.t-display {
+  font-family: var(--font-display);
+  font-weight: 400;            /* Anton ships a single weight */
+  text-transform: uppercase;
+  letter-spacing: 0.02em;      /* Anton is tight; a hair of tracking helps */
+  line-height: 0.95;
+}
+
+/* Body copy, labels, prices, hours */
+.t-body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+}
+
+/* Condensed all-caps subheads / nav / buttons */
+.t-label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;      /* generous tracking reads as "signage" */
+}
+
+/* Handpainted-glass accent — use SPARINGLY (taglines, est. date) */
+.t-script {
+  font-family: var(--font-script);
+  font-weight: 400;
+  letter-spacing: 0;
+}
