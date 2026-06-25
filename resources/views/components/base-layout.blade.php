@@ -30,13 +30,12 @@
             <ul class="hidden md:flex gap-6 lg:gap-8 items-center">
                 <li><a href="{{ route('appointments') }}" class="text-gray-700 hover:text-olive t-label transition">Kalender</a></li>
                 <li><a href="{{ route('products') }}" class="text-gray-700 hover:text-olive t-label transition">Producten</a></li>
-                                <li><a href="{{ route('contact.index') }}" class="text-gray-700 hover:text-olive t-label transition">Contact</a></li>
-              @auth
-            <li>
-              <a href="/dashboard" class="nav-link">
-               Dashboard
-              </a>
-            </li>
+                <li><a href="{{ route('contact.index') }}" class="text-gray-700 hover:text-olive t-label transition">Contact</a></li>
+                @auth
+                    <li>
+                        <a href="{{ route('dashboard') }}" class="text-gray-700 hover:text-olive t-label transition">
+                            Dashboard
+                        </a>
                     </li>
                     <li>
                         <form method="POST" action="{{ route('logout') }}">
@@ -79,10 +78,11 @@
         {{-- Mobile dropdown menu --}}
         <div id="mobileMenu" class="hidden md:hidden bg-white border-t border-gray-100 shadow-lg">
             <ul class="flex flex-col px-4 py-2">
-                <li><a href="{{ route('contact.index') }}" class="block py-3 text-gray-700 hover:text-olive t-label transition border-b border-gray-100">Contact</a></li>
-                <li><a href="{{ route('appointments') }}" class="block py-3 text-gray-700 hover:text-olive t-label transition border-b border-gray-100">Afspraken</a></li>
+                <li><a href="{{ route('appointments') }}" class="block py-3 text-gray-700 hover:text-olive t-label transition border-b border-gray-100">Kalender</a></li>
                 <li><a href="{{ route('products') }}" class="block py-3 text-gray-700 hover:text-olive t-label transition border-b border-gray-100">Producten</a></li>
+                <li><a href="{{ route('contact.index') }}" class="block py-3 text-gray-700 hover:text-olive t-label transition border-b border-gray-100">Contact</a></li>
                 @auth
+                    <li><a href="{{ route('dashboard') }}" class="block py-3 text-gray-700 hover:text-olive t-label transition border-b border-gray-100">Dashboard</a></li>
                     <li><a href="{{ route('profile.edit') }}" class="block py-3 text-gray-700 hover:text-olive t-label transition border-b border-gray-100">{{ Auth::user()->name }}</a></li>
                     <li class="py-3">
                         <form method="POST" action="{{ route('logout') }}">
