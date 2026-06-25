@@ -17,9 +17,16 @@ class AppointmentController extends Controller
     {
     }
 
+    /**
+     * Publieke kalenderweergave. Voor iedereen bereikbaar, maar de inhoud van
+     * bezette sloten verschilt per rol:
+     * - Gast/customer: bezette sloten zijn anoniem (geen naam/behandeling te zien).
+     * - Employee: bezette sloten zijn anoniem, behalve hun eigen afspraken.
+     * - Owner: ziet alles met volledige info.
+     */
     public function index(Request $request)
     {
-        $startOfWeek = $request->filled('week')
+        $startOfWeek = $request->has('week')
             ? Carbon::parse($request->query('week'))->startOfWeek()
             : Carbon::now()->startOfWeek();
 
@@ -28,14 +35,14 @@ class AppointmentController extends Controller
         $user = Auth::user();
         $role = $user?->role;
 
+        // Verrijk elk slot met de info die deze gebruiker mag zien.
         $week = $week->map(function ($day) use ($role, $user) {
             $day['slots'] = $day['slots']->map(function ($slot) use ($role, $user) {
                 if ($slot['status'] === 'booked' && $slot['appointment']) {
                     $appointment = $slot['appointment'];
 
-                    $canSeeDetails =
-                        $role === Role::Owner ||
-                        ($role === Role::Employee && $appointment->employee_id === $user->id);
+                    $canSeeDetails = $role === Role::Owner
+                        || ($role === Role::Employee && $appointment->employee_id === $user->id);
 
                     $slot['visible_appointment'] = $canSeeDetails ? $appointment : null;
                 }
@@ -56,12 +63,14 @@ class AppointmentController extends Controller
 
     public function view($id)
     {
-        $appointment = Appointment::with(['user', 'employee', 'treatments'])
-            ->findOrFail($id);
-
+        $appointment = Appointment::with(['user', 'employee', 'treatments'])->findOrFail($id);
         return view('appointments.view', compact('appointment'));
     }
 
+    /**
+     * Toon het boekingsformulier voor een specifiek datum + tijdslot.
+     * Vereist login (afgedwongen via route middleware).
+     */
     public function create(Request $request)
     {
         $validated = $request->validate([
@@ -71,20 +80,19 @@ class AppointmentController extends Controller
 
         $date = Carbon::parse($validated['date']);
 
+        // Check direct of dit slot nog steeds beschikbaar is (kan in de tussentijd gewijzigd zijn).
         $treatments = Treatment::all();
         $employees  = User::where('role', Role::Employee)->get();
+        $customers  = Auth::user()->role === Role::Owner
+            ? User::where('role', Role::Customer)->orderBy('name')->get()
+            : collect();
 
+        // Minimale duur om te checken: kleinste behandelingsduur, of slotlengte als fallback.
         $minDuration = $treatments->min('duration_minutes') ?? 30;
 
-        if (!$this->scheduleService->isRangeAvailable(
-            $date,
-            $validated['time'],
-            $minDuration
-        )) {
-            return redirect()
-                ->route('appointments')
-                ->withErrors(['slot' => 'Dit tijdslot is niet beschikbaar.'])
-                ->withInput();
+        if (!$this->scheduleService->isRangeAvailable($date, $validated['time'], $minDuration)) {
+            return redirect()->route('appointments')
+                ->withErrors(['slot' => 'Dit tijdslot is niet meer beschikbaar.']);
         }
 
         return view('appointments.create', [
@@ -92,17 +100,29 @@ class AppointmentController extends Controller
             'time'       => $validated['time'],
             'treatments' => $treatments,
             'employees'  => $employees,
+            'customers'  => $customers,
         ]);
     }
 
+    /**
+     * Sla een nieuwe afspraak op. Vereist login (afgedwongen via route middleware).
+     *
+     * Normaal gesproken is de afspraak voor de ingelogde gebruiker zelf.
+     * Een owner mag echter een afspraak namens een specifieke klant inplannen
+     * (bijv. telefonische boekingen), door 'user_id' in het formulier mee te geven.
+     */
     public function store(Request $request)
     {
+        $isOwner = Auth::user()->role === Role::Owner;
+
         $validated = $request->validate([
             'date'         => 'required|date',
             'time'         => 'required|date_format:H:i',
-            'employee_id'  => 'nullable|integer|exists:users,id',
+            'employee_id'  => 'nullable|exists:users,id',
             'treatments'   => 'required|array|min:1',
-            'treatments.*' => 'integer|exists:treatments,id',
+            'treatments.*' => 'exists:treatments,id',
+            // user_id mag alleen door de owner gebruikt worden; voor klanten wordt dit genegeerd.
+            'user_id'      => $isOwner ? 'required|exists:users,id' : 'nullable',
         ]);
 
         $date = Carbon::parse($validated['date']);
@@ -110,19 +130,19 @@ class AppointmentController extends Controller
         $selectedTreatments = Treatment::whereIn('id', $validated['treatments'])->get();
         $totalDuration = $selectedTreatments->sum('duration_minutes');
 
-        if (!$this->scheduleService->isRangeAvailable(
-            $date,
-            $validated['time'],
-            $totalDuration
-        )) {
-            return redirect()
-                ->back()
-                ->withErrors(['slot' => 'Tijdslot niet beschikbaar voor gekozen behandelingen.'])
+        // Herbevestig beschikbaarheid server-side met de werkelijke totale duur,
+        // om dubbele boekingen / race conditions te voorkomen.
+        if (!$this->scheduleService->isRangeAvailable($date, $validated['time'], $totalDuration)) {
+            return redirect()->back()
+                ->withErrors(['slot' => 'Dit tijdslot is niet meer beschikbaar voor de gekozen behandeling(en).'])
                 ->withInput();
         }
 
+        // Owner mag boeken namens een klant; iedere andere rol boekt altijd voor zichzelf.
+        $appointmentUserId = $isOwner ? $validated['user_id'] : Auth::id();
+
         $appointment = Appointment::create([
-            'user_id'     => Auth::id(),
+            'user_id'     => $appointmentUserId,
             'employee_id' => $validated['employee_id'] ?? null,
             'date'        => $validated['date'],
             'time'        => $validated['time'],
@@ -130,16 +150,12 @@ class AppointmentController extends Controller
 
         $appointment->treatments()->sync($validated['treatments']);
 
-        return redirect()
-            ->route('dashboard')
-            ->with('success', 'Afspraak ingepland.');
+        return redirect()->route('dashboard')->with('success', 'Afspraak ingepland.');
     }
 
     public function edit($id)
     {
-        $appointment = Appointment::with(['user', 'employee', 'treatments'])
-            ->findOrFail($id);
-
+        $appointment = Appointment::with(['user', 'employee', 'treatments'])->findOrFail($id);
         $treatments = Treatment::all();
         $employees = User::where('role', Role::Employee)->get();
 
@@ -151,23 +167,34 @@ class AppointmentController extends Controller
         $appointment = Appointment::findOrFail($id);
 
         $validated = $request->validate([
-            'employee_id' => 'nullable|integer|exists:users,id',
+            'employee_id' => 'nullable|exists:users,id',
             'date'        => 'required|date',
             'time'        => 'required|date_format:H:i',
             'treatments'  => 'nullable|array',
-            'treatments.*'=> 'integer|exists:treatments,id',
+            'treatments.*'=> 'exists:treatments,id',
         ]);
 
+        $date = Carbon::parse($validated['date']);
+
+        $selectedTreatments = Treatment::whereIn('id', $validated['treatments'] ?? [])->get();
+        $totalDuration = $selectedTreatments->sum('duration_minutes') ?: 30;
+
+        // Check beschikbaarheid, maar sluit deze afspraak zelf uit van de check
+        // (anders conflicteert een afspraak altijd met zijn eigen huidige tijdslot).
+        if (!$this->scheduleService->isRangeAvailable($date, $validated['time'], $totalDuration, $appointment->id)) {
+            return redirect()->back()
+                ->withErrors(['slot' => 'Dit tijdslot is al bezet door een andere afspraak.'])
+                ->withInput();
+        }
+
         $appointment->update([
-            'employee_id' => $validated['employee_id'] ?? null,
+            'employee_id' => $validated['employee_id'],
             'date'        => $validated['date'],
             'time'        => $validated['time'],
         ]);
 
         $appointment->treatments()->sync($validated['treatments'] ?? []);
 
-        return redirect()
-            ->route('dashboard')
-            ->with('success', 'Afspraak bijgewerkt.');
+        return redirect()->route('dashboard')->with('success', 'Afspraak bijgewerkt.');
     }
 }

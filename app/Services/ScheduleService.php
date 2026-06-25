@@ -11,7 +11,18 @@ use Illuminate\Support\Collection;
 
 class ScheduleService
 {
-    public function slotsForDate(Carbon|CarbonImmutable $date): Collection
+    /**
+     * Bereken alle tijdsloten voor een specifieke datum.
+     *
+     * Geeft een Collection van slot-objecten terug:
+     * [
+     *   'start' => '09:00',
+     *   'end'   => '09:30',
+     *   'status' => 'available' | 'booked' | 'blocked',
+     *   'appointment' => Appointment|null, // alleen gevuld als status 'booked' is
+     * ]
+     */
+    public function slotsForDate(Carbon|CarbonImmutable $date, ?int $excludeAppointmentId = null): Collection
     {
         $dayOfWeek = $date->dayOfWeek; // 0 = zondag ... 6 = zaterdag
 
@@ -26,10 +37,15 @@ class ScheduleService
         $start = $date->copy()->setTimeFromTimeString($businessHour->start_time->format('H:i'));
         $end   = $date->copy()->setTimeFromTimeString($businessHour->end_time->format('H:i'));
 
+        // Haal alle afspraken op voor deze dag, met treatments voor duur-berekening.
+        // De afspraak die je momenteel bewerkt (excludeAppointmentId) wordt overgeslagen,
+        // anders zou een afspraak altijd conflicteren met zichzelf.
         $appointments = Appointment::with('treatments')
             ->whereDate('date', $date->toDateString())
+            ->when($excludeAppointmentId, fn($query) => $query->where('id', '!=', $excludeAppointmentId))
             ->get();
 
+        // Haal alle relevante blokkades op (eenmalig op deze datum, of herhalend op deze weekdag).
         $blocks = ScheduleBlock::where(function ($query) use ($date, $dayOfWeek) {
             $query->where(function ($q) use ($date) {
                 $q->where('is_recurring', false)->whereDate('date', $date->toDateString());
@@ -51,6 +67,7 @@ class ScheduleService
             $status = 'available';
             $matchedAppointment = null;
 
+            // Check of dit slot binnen een blokkade valt.
             foreach ($blocks as $block) {
                 $blockStart = $cursor->copy()->setTimeFromTimeString($block->start_time->format('H:i'));
                 $blockEnd   = $cursor->copy()->setTimeFromTimeString($block->end_time->format('H:i'));
@@ -61,6 +78,7 @@ class ScheduleService
                 }
             }
 
+            // Check of dit slot overlapt met een bestaande afspraak.
             if ($status !== 'blocked') {
                 foreach ($appointments as $appointment) {
                     $apptStart = $cursor->copy()->setTimeFromTimeString($appointment->time->format('H:i'));
@@ -88,6 +106,11 @@ class ScheduleService
         return $slots;
     }
 
+    /**
+     * Bereken sloten voor een hele week (7 dagen vanaf $startOfWeek).
+     *
+     * Geeft een Collection terug van ['date' => Carbon, 'slots' => Collection].
+     */
     public function slotsForWeek(Carbon|CarbonImmutable $startOfWeek): Collection
     {
         $days = collect();
@@ -103,10 +126,14 @@ class ScheduleService
         return $days;
     }
 
-
-    public function isRangeAvailable(Carbon|CarbonImmutable $date, string $startTime, int $durationMinutes): bool
+    /**
+     * Check of een specifiek tijdsblok (start + duur) volledig vrij is op een datum.
+     * Gebruikt bij het daadwerkelijk opslaan van een nieuwe afspraak om race conditions
+     * en dubbele boekingen te voorkomen.
+     */
+    public function isRangeAvailable(Carbon|CarbonImmutable $date, string $startTime, int $durationMinutes, ?int $excludeAppointmentId = null): bool
     {
-        $slots = $this->slotsForDate($date);
+        $slots = $this->slotsForDate($date, $excludeAppointmentId);
 
         $rangeStart = $date->copy()->setTimeFromTimeString($startTime);
         $rangeEnd   = $rangeStart->copy()->addMinutes($durationMinutes);
@@ -115,6 +142,7 @@ class ScheduleService
             $slotStart = $date->copy()->setTimeFromTimeString($slot['start']);
             $slotEnd   = $date->copy()->setTimeFromTimeString($slot['end']);
 
+            // Alleen sloten die overlappen met de gewenste range zijn relevant.
             if ($slotStart->lt($rangeEnd) && $slotEnd->gt($rangeStart)) {
                 if ($slot['status'] !== 'available') {
                     return false;
