@@ -28,7 +28,7 @@
 
             {{-- Desktop menu --}}
             <ul class="hidden md:flex gap-6 lg:gap-8 items-center">
-                <li><a href="{{ route('appointments') }}" class="text-gray-700 hover:text-olive t-label transition">Afspraak maken</a></li>
+                <li><a href="{{ route('appointments') }}" class="text-gray-700 hover:text-olive t-label transition">Kalender</a></li>
                 <li><a href="{{ route('products') }}" class="text-gray-700 hover:text-olive t-label transition">Producten</a></li>
                                 <li><a href="{{ route('contact.index') }}" class="text-gray-700 hover:text-olive t-label transition">Contact</a></li>
               @auth
