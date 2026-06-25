@@ -193,7 +193,7 @@
                 </div>
             </div>
             <div class="border-t border-olive pt-4 text-center text-sm">
-                <p>&copy; 2024 Je haar zit goed. Alle rechten voorbehouden.</p>
+                <p>&copy; 2026 Je haar zit goed. Alle rechten voorbehouden.</p>
                 <p class="mt-2"><a href="{{ route('privacy-policy') }}" class="text-olive hover:underline">Privacyverklaring</a></p>
             </div>
         </div>
